@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Realtime Voice Chat</title>
+  </head>
+  <body>
+    <h1>Local Voice Chat</h1>
+    <button id="startCall">Start Call</button>
+    <button id="endCall">End Call</button>
+    <h2>Past Recordings</h2>
+    <ul id="recordingsList"></ul>
+    <hr />
+    <button id="test">Test</button>
+    <script>
+      const testBtn = document.getElementById("test");
+      testBtn.onclick = async () => {
+        const textToBase64Uri = (text) =>
+          `data:text/plain;base64,${btoa(unescape(encodeURIComponent(text)))}`;
+        const response = await fetch(
+          `http://localhost:${port}/storage/createFile`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              path: "test.txt",
+              content: textToBase64Uri("Hello World!"),
+            }),
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+        const data = await response.json();
+      };
+      const port = location.port;
+      let mediaRecorder;
+      let audioStream;
+      let peerConnection;
+      let socket = new WebSocket("ws://localhost:" + port);
+      const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+      // Function to start streaming audio to the server
+      async function startStreaming(stream) {
+        mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+
+        mediaRecorder.ondataavailable = async (event) => {
+          if (event.data.size > 0) {
+            try {
+              await fetch(`http://localhost:${port}/stream`, {
+                method: "POST",
+                body: event.data,
+                headers: { "Content-Type": "application/octet-stream" },
+              });
+            } catch (error) {
+              console.error("Streaming failed:", error);
+            }
+          }
+        };
+
+        mediaRecorder.start(1000); // Send audio every second
+      }
+      // Handle WebRTC messages from the server
+      socket.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === "offer") {
+          peerConnection = new RTCPeerConnection(config);
+          peerConnection.onicecandidate = (e) => {
+            if (e.candidate) {
+              socket.send(
+                JSON.stringify({ type: "candidate", candidate: e.candidate })
+              );
+            }
+          };
+          peerConnection.ontrack = (event) => {
+            let audio = document.createElement("audio");
+            audio.srcObject = event.streams[0];
+            audio.autoplay = true;
+            document.body.appendChild(audio);
+          };
+          await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.offer)
+          );
+          const answer = await peerConnection.createAnswer();
+          await peerConnection.setLocalDescription(answer);
+          socket.send(JSON.stringify({ type: "answer", answer }));
+        }
+        if (data.type === "answer") {
+          await peerConnection.setRemoteDescription(
+            new RTCSessionDescription(data.answer)
+          );
+        }
+        if (data.type === "candidate" && peerConnection) {
+          peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
+        }
+      };
+      // Start Call Button
+      document.getElementById("startCall").onclick = async () => {
+        peerConnection = new RTCPeerConnection(config);
+        peerConnection.onicecandidate = (e) => {
+          if (e.candidate) {
+            socket.send(
+              JSON.stringify({ type: "candidate", candidate: e.candidate })
+            );
+          }
+        };
+        // Capture audio and start streaming
+        audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        audioStream
+          .getTracks()
+          .forEach((track) => peerConnection.addTrack(track, audioStream));
+        startStreaming(audioStream);
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.send(JSON.stringify({ type: "offer", offer }));
+      };
+      // End Call Button
+      document.getElementById("endCall").onclick = () => {
+        peerConnection.close();
+        mediaRecorder.stop();
+      };
+      // Fetch and Display Recording History
+      async function loadRecordings() {
+        const response = await fetch(`http://localhost:${port}/history`);
+        if (response.status !== 200) {
+          return;
+        }
+        const recordings = await response.json();
+        console.log(recordings);
+        const list = document.getElementById("recordingsList");
+        list.innerHTML = "";
+        recordings.forEach((file) => {
+          const li = document.createElement("li");
+          const link = document.createElement("a");
+          link.href = `http://localhost:${port}/recordings/${file}`;
+          link.textContent = file;
+          const btn = document.createElement("button");
+          btn.textContent = "Delete";
+          btn.onclick = async () => {
+            const response = await fetch(
+              `http://localhost:${port}/history/delete/` + file,
+              {
+                method: "DELETE",
+              }
+            );
+            if (response.status === 200) {
+              li.remove();
+            }
+          };
+          link.target = "_blank";
+          li.appendChild(btn);
+          li.appendChild(link);
+          list.appendChild(li);
+        });
+      }
+      loadRecordings();
+    </script>
+  </body>
+</html>

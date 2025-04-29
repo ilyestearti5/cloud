@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Local Cloud",
+      "type": "shell",
+      "command": "npm start",
+      "problemMatcher": []
+    },
+    {
+      "label": "Test Local Cloud",
+      "type": "shell",
+      "command": "npm run start",
+      "problemMatcher": []
+    },
+    {
+      "label": "Run Cloud",
+      "dependsOn": ["Start Local Cloud", "Test Local Cloud"]
+    }
+  ]
+}
