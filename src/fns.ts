@@ -65,8 +65,8 @@ export const verifyUser = async (email: string, password: string) => {
     status: !user
       ? Errors.UserNotFound
       : decrypt(user.password) === password
-        ? Errors.Success
-        : Errors.PasswordIncorrect,
+      ? Errors.Success
+      : Errors.PasswordIncorrect,
     user,
     users,
   };
@@ -111,14 +111,16 @@ export interface User {
   firstname?: string;
   lastname?: string;
   password: string;
+  code?: string;
 }
 export interface Token {
   uid?: string;
   exp: string;
   email?: string;
   origin?: string;
+  code: string;
 }
-export const generateToken = (data: Omit<Token, "exp">) => {
+export const createToken = (data: Omit<Token, "exp">) => {
   const string = JSON.stringify({
     ...data,
     exp: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
